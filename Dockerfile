@@ -10,11 +10,11 @@ WORKDIR /app
 # Sao chép toàn bộ code của bạn vào máy chủ
 COPY . /app
 
-# Cài đặt các thư viện Python cần thiết
-RUN pip install streamlit pandas
+# Cài đặt các thư viện Python cần thiết (Đã thêm gspread và google-auth)
+RUN pip install streamlit pandas gspread google-auth
 
-# Biên dịch file C++ ngay trên máy chủ Linux
-RUN g++ C++.cpp -o processor
+# Biên dịch chính xác tên file C++.cpp của bạn trên máy chủ đám mây
+RUN g++ "C++.cpp" -o processor
 
 # Mở cổng kết nối của Streamlit
 EXPOSE 8501
