@@ -8,14 +8,25 @@ from google.oauth2.service_account import Credentials
 
 st.title("💰 Ứng dụng Quản lý Chi tiêu Đám mây")
 
-# 1. Kết nối Google Sheets
-scope = ["https://google.com", "https://googleapis.com"]
+# 1. Kết nối Google Sheets độc lập
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+
+# Kiểm tra sự tồn tại của file cấu hình trước khi đọc
+if not os.path.exists("google_creds.json"):
+    st.error("❌ Không tìm thấy file 'google_creds.json' trên hệ thống! Vui lòng kiểm tra lại tên file trên GitHub.")
+    st.stop()
+
 try:
     creds = Credentials.from_service_account_file("google_creds.json", scopes=scope)
     gc = gspread.authorize(creds)
+    # Cố gắng kết nối tới file
     sh = gc.open("QuanLyChiTieu")
+except gspread.exceptions.SpreadsheetNotFound:
+    st.error("❌ Không tìm thấy file Google Sheets nào tên là 'QuanLyChiTieu'. Bạn hãy kiểm tra xem tên file trên Google Drive đã viết liền và đúng chính tả chưa.")
+    st.stop()
 except Exception as e:
-    st.error("Lỗi kết nối Google Sheets. Vui lòng kiểm tra lại file google_creds.json")
+    st.error(f"❌ Lỗi kết nối hệ thống Google: {e}")
+    st.stop()
 
 # Quản lý danh sách các tháng ở Sidebar
 st.sidebar.header("📅 Quản lý theo Tháng")
@@ -63,7 +74,7 @@ if len(all_records) > 1:
     data_to_cpp = all_records[1:]
     with open("data.csv", "w", encoding="utf-8") as f:
         for row in data_to_cpp:
-            # Ghi định dạng chuẩn CSV: Ngày,Danh mục,Nội dung,Số tiền
+            # Sửa lỗi logic xuất chuỗi: Ghi định dạng chuẩn CSV
             f.write(f"{row[0]},{row[1]},{row[2]},{row[3]}\n")
             
     # Gọi file C++ chạy ngầm tính toán
