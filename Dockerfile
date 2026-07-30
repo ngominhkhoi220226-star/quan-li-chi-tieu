@@ -14,7 +14,7 @@ COPY . /app
 RUN pip install streamlit pandas
 
 # Biên dịch file C++ ngay trên máy chủ Linux
-RUN g++ processor.cpp -o processor
+RUN g++ C++.cpp -o processor
 
 # Mở cổng kết nối của Streamlit
 EXPOSE 8501
