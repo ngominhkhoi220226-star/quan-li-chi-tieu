@@ -11,27 +11,26 @@ int main() {
     long long total = 0;
 
     if (file.is_open()) {
-        // Đọc từng dòng trong file CSV
         while (getline(file, line)) {
             if (line.empty()) continue;
             
             stringstream ss(line);
             string date, category, content, amount_str;
             
-            // Cấu trúc mới: Ngày,Danh mục,Nội dung,Số tiền
+            // Đọc cấu trúc 4 cột từ file CSV tạm thời
             getline(ss, date, ',');
             getline(ss, category, ',');
             getline(ss, content, ',');
             getline(ss, amount_str, ',');
 
             if (!amount_str.empty()) {
-                total += stoll(amount_str); // Cộng dồn số tiền
+                total += stoll(amount_str); // Ép kiểu chuỗi thành số và cộng dồn
             }
         }
         file.close();
     }
 
-    // Ghi tổng tiền ra file text để Python đọc lại
+    // Xuất tổng tiền ra file tạm total.txt để Python đọc
     ofstream outfile("total.txt");
     outfile << total;
     outfile.close();
