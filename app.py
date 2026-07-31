@@ -38,7 +38,7 @@ current_month = datetime.now().strftime("%m-%y")
 if "months_list" not in st.session_state:
     st.session_state.months_list = [current_month]
 
-new_month = st.sidebar.text_input("Nhập tháng mới (VD: 2026-08):", placeholder="MM-YYYY")
+new_month = st.sidebar.text_input("Nhập tháng mới (VD: 1-08-2026):", placeholder="D-MM-YYYY")
 if new_month and new_month not in st.session_state.months_list:
     st.session_state.months_list.append(new_month)
 
@@ -160,4 +160,4 @@ if len(all_records) > 1:
         # Nếu không tìm kiếm, hiển thị toàn bộ bảng như cũ
         st.dataframe(df, use_container_width=True)
 else:
-    st.info(f"Tháng {selected_month} chưa có khoản chi nào trên Firebase.")
+    st.info(f"Tháng {selected_month} chưa có khoản chi nào.")
