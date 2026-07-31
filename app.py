@@ -3,29 +3,33 @@ import os
 import subprocess
 from datetime import datetime
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
 import json
 
-st.title("💰 Ứng dụng Quản lý Chi tiêu Đám mây v2")
+# Thư viện Firebase Admin chính thức của Google
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# 1. Kết nối Google Sheets trực tiếp qua Biến môi trường Render
-scope = ["https://google.com", "https://googleapis.com"]
+st.title("🔥 Ứng dụng Quản lý Chi tiêu Firebase")
+
+# 1. Khởi tạo kết nối Firebase bằng biến môi trường Render
 google_creds_raw = os.environ.get("GOOGLE_CREDENTIALS")
 
 if not google_creds_raw:
-    st.error("❌ Hệ thống chưa thiết lập cấu hình kết nối Google Drive! Vui lòng kiểm tra lại mục Environment trên Render.")
+    st.error("❌ Chưa thiết lập cấu hình GOOGLE_CREDENTIALS trong Environment của Render!")
     st.stop()
 
-try:
-    info = json.loads(google_creds_raw)
-    creds = Credentials.from_service_account_info(info, scopes=scope)
-    gc = gspread.authorize(creds)
-    # Mở file Google Trang tính nằm trên Google Drive của bạn
-    sh = gc.open("QuanLyChiTieu")
-except Exception as e:
-    st.error(f"❌ Lỗi xác thực với Google: {e}. Vui lòng kiểm tra lại ô Value trên Render hoặc quyền chia sẻ file Trang tính.")
-    st.stop()
+# Khởi tạo Firebase App duy nhất một lần
+if not firebase_admin._apps:
+    try:
+        info = json.loads(google_creds_raw)
+        cred = credentials.Certificate(info)
+        firebase_admin.initialize_app(cred)
+    except Exception as e:
+        st.error(f"❌ Lỗi cấu hình file bí mật JSON: {e}")
+        st.stop()
+
+# Kết nối cơ sở dữ liệu Firestore
+db = firestore.client()
 
 # Quản lý danh sách các tháng ở Sidebar
 st.sidebar.header("📅 Quản lý theo Tháng")
@@ -40,14 +44,20 @@ if new_month and new_month not in st.session_state.months_list:
 
 selected_month = st.sidebar.selectbox("Chọn tháng cần xem:", st.session_state.months_list)
 
-# Tên trang tính riêng cho từng tháng trên Google Drive
-try:
-    worksheet = sh.worksheet(selected_month)
-except gspread.exceptions.WorksheetNotFound:
-    worksheet = sh.add_worksheet(title=selected_month, rows="1000", cols="4")
-    worksheet.append_row(["Ngày", "Danh mục", "Nội dung chi tiêu", "Số tiền (VNĐ)"])
+# 2. Đồng bộ dữ liệu từ đám mây Firebase Firestore về máy chủ Render
+# Truy cập vào bảng dữ liệu (Collection) tương ứng của tháng
+collection_ref = db.collection(f"chi_tieu_{selected_month}")
+docs = collection_ref.order_by("timestamp", direction=firestore.Query.ASCENDING).stream()
 
-# 2. Form nhập liệu chi tiêu
+all_records = [["Ngày", "Danh mục", "Nội dung chi tiêu", "Số tiền (VNĐ)"]]
+doc_ids = [] # Lưu lại ID của các phần tử để xóa nếu nhập nhầm
+
+for doc in docs:
+    data = doc.to_dict()
+    all_records.append([data["date"], data["category"], data["content"], int(data["amount"])])
+    doc_ids.append(doc.id)
+
+# 3. Form nhập liệu chi tiêu
 st.subheader(f"✍️ Nhập chi tiêu cho tháng {selected_month}")
 with st.form("expense_form", clear_on_submit=True):
     amount = st.number_input("Số tiền (VNĐ):", min_value=0, step=1000)
@@ -61,31 +71,35 @@ if submit and amount > 0:
     today = datetime.now().strftime("%Y-%m-%d")
     safe_content = content.replace(",", " ")
     
-    # Ghi dữ liệu trực tiếp lên đám mây Google Drive / Google Sheets
-    worksheet.append_row([today, category, safe_content, int(amount)])
-    st.success("Đã lưu dữ liệu thẳng lên Google Drive của bạn!")
+    # Đẩy dữ liệu trực tiếp lên Firebase Firestore (Lưu vĩnh viễn không sợ mất)
+    new_doc_data = {
+        "date": today,
+        "category": category,
+        "content": safe_content,
+        "amount": int(amount),
+        "timestamp": firestore.SERVER_TIMESTAMP # Lưu mốc thời gian để sắp xếp thứ tự
+    }
+    collection_ref.add(new_doc_data)
+    st.success("🎉 Đã lưu dữ liệu thẳng lên đám mây Firebase vĩnh viễn!")
+    st.rerun()
 
-# lấy toàn bộ dữ liệu từ Google Drive về máy chủ để đồng bộ xử lý
-all_records = worksheet.get_all_values()
-
-# 3. Tính năng xóa khoản chi gần nhất nếu lỡ ghi nhầm
+# 4. Tính năng xóa khoản chi gần nhất nếu lỡ ghi nhầm
 if len(all_records) > 1:
     st.write("---")
     if st.button("↩️ Xóa khoản chi vừa nhập (Nếu ghi nhầm)"):
-        # Lệnh xóa dòng cuối cùng trên file Google Drive
-        worksheet.delete_rows(len(all_records))
-        st.warning("Đã xóa khoản chi gần nhất! Hãy bấm nút 'Cập nhật lại dữ liệu' hoặc tải lại trang.")
+        # Tiến hành xóa phần tử cuối cùng trên Firebase
+        collection_ref.document(doc_ids[-1]).delete()
+        st.warning("Đã xóa khoản chi gần nhất trên hệ thống Firebase!")
         st.rerun()
 
-# 4. Đồng bộ dữ liệu sang file tạm thời để file C++.cpp chạy ngầm tính tổng tiền
+# 5. Đồng bộ dữ liệu sang file data.csv tạm thời để file C++.cpp chạy ngầm tính tổng tiền
 if len(all_records) > 1:
-    data_to_cpp = all_records[1:]
     with open("data.csv", "w", encoding="utf-8") as f:
-        for row in data_to_cpp:
-            if len(row) >= 4:
-                f.write(f"{row},{row},{row},{row}\n")
+        for row in all_records[1:]:
+            # Ghi định dạng chuẩn 4 cột: Ngày,Danh mục,Nội dung,Số tiền
+            f.write(f"{row[0]},{row[1]},{row[2]},{row[3]}\n")
             
-    # Gọi file C++.cpp đã biên dịch để tính toán
+    # Gọi file C++.cpp của bạn đã biên dịch để tính toán tổng tiền
     if os.path.exists("./processor"):
         subprocess.run(["./processor"])
 
@@ -97,12 +111,12 @@ if os.path.exists("total.txt"):
         if content_total:
             total_money = int(content_total)
 
-st.metric(label=f"Tổng chi tiêu tháng {selected_month}", value=f"{total_money:,} VNĐ")
+st.metric(label=f"Tổng chi tiêu tháng {selected_month} (Xử lý bởi C++)", value=f"{total_money:,} VNĐ")
 
-# 5. Hiển thị lịch sử dạng bảng từ Drive
+# 6. Hiển thị lịch sử dạng bảng từ Firebase
 if len(all_records) > 1:
     st.subheader(f"📊 Lịch sử chi tiêu tháng {selected_month}")
-    df = pd.DataFrame(all_records[1:], columns=all_records)
+    df = pd.DataFrame(all_records[1:], columns=all_records[0])
     st.dataframe(df, use_container_width=True)
 else:
-    st.info(f"Tháng {selected_month} chưa có khoản chi nào vĩnh viễn trên Drive.")
+    st.info(f"Tháng {selected_month} chưa có khoản chi nào trên Firebase.")
